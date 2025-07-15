@@ -35,7 +35,7 @@ double* buf_d;
 int* buf_i;
 
 
-const int G_NX = 128;                 //*< кол-во ячеек вдоль оси Z
+const int G_NX = 256;                 //*< кол-во ячеек вдоль оси Z
 const int G_NY = 10;                 //*< кол-во ячеек вдоль оси R
 const int G_NZ = 32;                 //*< кол-во ячеек по углу
 const int K = 1;                   //*< кол-во фикт. ячеек
@@ -902,41 +902,61 @@ void bnd_cond()
 				double z_start = rnk * DX[0] * NX;
 				double z_end = (rnk + 1) * DX[0] * NX;
 				double z_c = i * DX[0] + rnk * DX[0] * NX;
-
+				x_c = G_D_MAX[1] * cos(fi * hugol);
+				y_c = G_D_MAX[1] * sin(fi * hugol);
 				for (int j = 0; j < K; j++) {
-					if (z_prev <= z_c && z_c <= z_next) {
-						x_c = G_D_MAX[1] * cos(fi * hugol);
-						y_c = G_D_MAX[1] * sin(fi * hugol);
-						if (pow(x_c, 2) / pow(a, 2) + pow(z_c - z_center, 2) / pow(b, 2) - pow(y_c, 2) <= eps && y_c > 0) {
-							temp[i][hi[1] + j + 1][fi] = temp_bound_circle;
-							printf("popal!\n");
-						}
-						else {
-							temp[i][hi[1] + j + 1][fi] = temp_0;
-						}
+					//задаем течение в дырочке
+					if ((z_prev <= z_c && z_c <= z_next) && (pow(x_c, 2) / pow(a, 2) + pow(z_c - z_center, 2) / pow(b, 2) - pow(y_c, 2) <= eps && y_c > 0)) {
+						//printf("popal!\n");
+						//температура
+						temp[i][hi[1] + j + 1][fi] = temp_bound_circle;
+
+						for (int iM = 0; iM < nMat; iM++) y[iM] = 0.;
+						y[0] = 0.6;
+						y[1] = 0.4;
+						double fU = vMixt / S_Vx;
+						double RR = D_Vh / 2.0;
+						//double p_g = p0 + pidin[lo[0] + i][j][fi];
+						double p_g = p0 + 0.01;
+						//double p_g = p0 + 8 * Calc_ML_Nv(y, temp_bound_circle) * G_D_MAX[0] * vMixt / (M_PI * RR * RR * RR * RR);
+						urs_mixt(y, 0.0, p_g, temp[i][hi[1] + j + 1][fi], 3,
+							tmp, gamma, r, h_);
+
+						ro[i][hi[1] + j + 1][fi] = r;
+
+						double ui = 0.0 * fU;
+						double vi = -1 * fU;
+						double wi = 0.0 * fU;
+
+						ru[i][hi[1] + j + 1][fi] = r * ui;
+						rv[i][hi[1] + j + 1][fi] = r * vi;
+						rw[i][hi[1] + j + 1][fi] = r * wi;
+						rh[i][hi[1] + j + 1][fi] = r * h_;
+						pidin[i][hi[1] + j + 1][fi] = p_g - p0;
+
+						for (int iM = 0; iM < nMat; iM++)
+							ry[iM][i][hi[1] + j + 1][fi] = r * y[iM];
 					}
 					else {
+						//Верхняя стенка, температура
 						temp[i][hi[1] + j + 1][fi] = temp_0;
+						//верхняя стенка
+						//составляющую давления везде отражаю
+						pidin[i][hi[1] + j + 1][fi] = pidin[i][hi[1] - j][fi];
+
+						//верхняя стенка - непротекание
+
+						ro[i][hi[1] + j + 1][fi] = ro[i][hi[1] - j][fi];
+						ru[i][hi[1] + j + 1][fi] = -ru[i][hi[1] - j][fi];
+						rv[i][hi[1] + j + 1][fi] = -rv[i][hi[1] - j][fi];
+						rw[i][hi[1] + j + 1][fi] = -rw[i][hi[1] - j][fi];
+						rh[i][hi[1] + j + 1][fi] = rh[i][hi[1] - j][fi];
+						for (int iM = 0; iM < nMat; iM++)
+							ry[iM][i][hi[1] + j + 1][fi] = ry[iM][i][hi[1] - j][fi];
+
 					}
-				}
 
-				//верхняя стенка
-				for (int j = 0; j < K; j++) { //составляющую давления везде отражаю
-					pidin[i][hi[1] + j + 1][fi] = pidin[i][hi[1] - j][fi];
 				}
-				//верхняя стенка - непротекание
-				for (int j = 0; j < K; j++) {
-					ro[i][hi[1] + j + 1][fi] = ro[i][hi[1] - j][fi];
-					ru[i][hi[1] + j + 1][fi] = -ru[i][hi[1] - j][fi];
-					rv[i][hi[1] + j + 1][fi] = -rv[i][hi[1] - j][fi];
-					rw[i][hi[1] + j + 1][fi] = -rw[i][hi[1] - j][fi];
-					rh[i][hi[1] + j + 1][fi] = rh[i][hi[1] - j][fi];
-					for (int iM = 0; iM < nMat; iM++)
-						ry[iM][i][hi[1] + j + 1][fi] = ry[iM][i][hi[1] - j][fi];
-				}
-				//верхняя стенка температура
-
-
 
 			}
 		}
