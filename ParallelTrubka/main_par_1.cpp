@@ -35,9 +35,9 @@ double* buf_d;
 int* buf_i;
 
 
-const int G_NX = 256;                 //*< кол-во ячеек вдоль оси Z
+const int G_NX = 128;                 //*< кол-во ячеек вдоль оси Z
 const int G_NY = 10;                 //*< кол-во ячеек вдоль оси R
-const int G_NZ = 64;                 //*< кол-во ячеек по углу
+const int G_NZ = 32;                 //*< кол-во ячеек по углу
 const int K = 1;                   //*< кол-во фикт. ячеек
 const int FLD_COUNT = 100;           //*< кол-во переменных
 
@@ -72,7 +72,7 @@ const double T_MAX = 10;
 
 const double TAU = 1.e-6;
 
-const int SAVE_STEP = 1000;
+const int SAVE_STEP = 1;
 const int SAVE_TIME = 1000;
 
 const int nMat = 2;//*<количество веществ
@@ -832,34 +832,12 @@ void init() {
 	Mm[1] = 0.02805418; h0[1] = 5.24554e4 / Mm[1]; //ethylene
 
 	double r, p, u, v, e, gam, tmp, h_, w;
-	double z_c, x_c, y_c;
-	double hugol = 2 * M_PI / (NZ);
-	double z_prev = z_center - radius, z_next = z_center + radius;
-	double eps = 0.0001;
-	double a = 0.2, b = 0.2;
-
 	for (int i = lo[0] - 1; i <= hi[0] + 1; i++) {
 		for (int j = lo[1] - 1; j <= hi[1] + 1; j++) {
 			for (int fi = lo[2] - 1; fi <= hi[2] + 1; fi++) {
 
-				double z_start = rnk * DX[0] * NX;
-				double z_end = (rnk + 1) * DX[0] * NX;
-				double z_c = i * DX[0] + rnk * DX[0] * NX;
+				temp[i][j][fi] = temp_0;
 
-
-				if (z_prev <= z_c && z_c <= z_next) {
-					x_c = G_D_MAX[1] * cos(fi * hugol);
-					y_c = G_D_MAX[1] * sin(fi * hugol);
-					if (pow(x_c, 2)/pow(a,2) + pow(z_c - z_center, 2)/pow(b, 2) - pow(y_c, 2) <= eps && y_c > 0) {
-						temp[i][j][fi] = temp_bound_circle;
-					}
-					else {
-						temp[i][j][fi] = temp_0;
-					}
-				}
-				else {
-					temp[i][j][fi] = temp_0;
-				}
 				p = p0;
 				u = 0.0;
 				v = 0.0;
@@ -889,7 +867,11 @@ void bnd_cond()
 	double r, p, h_, tmp, gamma;
 	double S_Vx = M_PI * (D_Vh / 2.0) * (D_Vh / 2.0);
 	int fi_oz;
+	double z_c, x_c, y_c;
 	double hugol = 2 * M_PI / (NZ);
+	double z_prev = z_center - radius, z_next = z_center + radius;
+	double eps = 0.0001;
+	double a = 0.2, b = 0.2;
 	for (int i = lo[0]; i <= hi[0]; i++) {
 		for (int fi = lo[2]; fi <= hi[2]; fi++) {
 			double x1 = D_MIN[0] + (i - K) * DX[0];
@@ -917,9 +899,25 @@ void bnd_cond()
 			}
 			if (rnk_t == -1) {
 
+				double z_start = rnk * DX[0] * NX;
+				double z_end = (rnk + 1) * DX[0] * NX;
+				double z_c = i * DX[0] + rnk * DX[0] * NX;
 
 				for (int j = 0; j < K; j++) {
-					temp[i][hi[1] + j + 1][fi] = temp_bound;
+					if (z_prev <= z_c && z_c <= z_next) {
+						x_c = G_D_MAX[1] * cos(fi * hugol);
+						y_c = G_D_MAX[1] * sin(fi * hugol);
+						if (pow(x_c, 2) / pow(a, 2) + pow(z_c - z_center, 2) / pow(b, 2) - pow(y_c, 2) <= eps && y_c > 0) {
+							temp[i][hi[1] + j + 1][fi] = temp_bound_circle;
+							printf("popal!\n");
+						}
+						else {
+							temp[i][hi[1] + j + 1][fi] = temp_0;
+						}
+					}
+					else {
+						temp[i][hi[1] + j + 1][fi] = temp_0;
+					}
 				}
 
 				//верхняя стенка
