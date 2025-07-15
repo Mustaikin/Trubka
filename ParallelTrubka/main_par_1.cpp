@@ -27,7 +27,7 @@ rnk_fi0,
 rnk_fi,
 rnk_ij[3],
 size,
-sz_x = 6,
+sz_x = 4,
 sz_y = 1,
 sz_z = 1;
 
@@ -35,17 +35,21 @@ double* buf_d;
 int* buf_i;
 
 
-const int G_NX = 240;                 //*< кол-во ячеек вдоль оси Z
-const int G_NY = 24;                 //*< кол-во ячеек вдоль оси R
-const int G_NZ = 10;                 //*< кол-во ячеек по углу
+const int G_NX = 256;                 //*< кол-во ячеек вдоль оси Z
+const int G_NY = 10;                 //*< кол-во ячеек вдоль оси R
+const int G_NZ = 32;                 //*< кол-во ячеек по углу
 const int K = 1;                   //*< кол-во фикт. ячеек
 const int FLD_COUNT = 100;           //*< кол-во переменных
 
 
 const double G_D_MIN[3] = { 0.0, 0.0, 0.0 }; //*< domaine min coordinates
-const double G_D_MAX[3] = { 0.120, 0.012, 2 * M_PI }; //*< domaine min coordinates
+const double G_D_MAX[3] = { 0.120, 0.012, 2 * M_PI }; //*< domaine max coordinates
 const double D_Vh = 0.024;  //диаметр трубы для входящего потока
 
+
+const double z_center = 0.06; // точки на вершинах окружности по оси Z
+
+const double radius = 0.05;
 int rank_l, rank_r, rank_b, rank_t, rank_fi0, rank_fi;
 
 int NX = G_NX;                 //*< кол-во ячеек вдоль оси Z на одном процессоре
@@ -60,6 +64,7 @@ int BUF_SIZE = 0;
 double D_MIN[3] = { G_D_MIN[0], G_D_MIN[1], G_D_MIN[2] }; //*< domaine min coordinates
 double D_MAX[3] = { G_D_MAX[0], G_D_MAX[1], G_D_MAX[2] }; //*< domaine max coordinates
 
+
 double DX[3] = { (D_MAX[0] - D_MIN[0]) / NX, (D_MAX[1] - D_MIN[1]) / NY, (D_MAX[2] - D_MIN[2]) / NZ };
 
 
@@ -67,7 +72,7 @@ const double T_MAX = 10;
 
 const double TAU = 1.e-6;
 
-const int SAVE_STEP = 100;
+const int SAVE_STEP = 1;
 const int SAVE_TIME = 1000;
 
 const int nMat = 2;//*<количество веществ
@@ -80,6 +85,7 @@ const double TRef = 298.15;
 const double temp_in = 973.0; // температура втекающего газа метана
 const double temp_0 = 873.15; // температура в нач момент времени
 const double temp_bound = 1273.0; // температура нагревательного элемента
+const double temp_bound_circle = 3000; // температура на границе дополнительной трубки
 const double p0 = 101325.0; //давление на вытекании
 const double vMixt = 5.0 * 2.2e-6; //заданный объемный расход смеси м3/с
 
@@ -345,7 +351,7 @@ void mem_alloc()
 			S[i][j] = new double[TOTAL_NZ];
 		}
 	}
-	
+
 	QFx = new double** [TOTAL_NX + 1];
 	QFy = new double** [TOTAL_NX];
 	QFz = new double** [TOTAL_NX];
@@ -674,10 +680,11 @@ void save_vtk(int num) {
 	for (int i = lo[1]; i <= hi[1]; i++) {
 		for (int j = lo[2]; j <= hi[2]; j++) {
 			for (int k = lo[0]; k <= hi[0]; k++) {
-			//	if (std::isnan(temp[k][i][j])) {
-			//		abort();
-			//	}
+				//	if (std::isnan(temp[k][i][j])) {
+				//		abort();
+				//	
 				fprintf(fp, "%20.10f\n", temp[k][i][j]);
+
 			}
 		}
 	}
@@ -688,9 +695,9 @@ void save_vtk(int num) {
 	for (int i = lo[1]; i <= hi[1]; i++) {
 		for (int j = lo[2]; j <= hi[2]; j++) {
 			for (int k = lo[0]; k <= hi[0]; k++) {
-			//	if (std::isnan(ro[k][i][j])) {
-			//		abort();
-			//	}
+				//	if (std::isnan(ro[k][i][j])) {
+				//		abort();
+				//	}
 				fprintf(fp, "%20.10f\n", ro[k][i][j]);
 			}
 		}
@@ -750,9 +757,9 @@ void save_vtk(int num) {
 	for (int i = lo[1]; i <= hi[1]; i++) {
 		for (int j = lo[2]; j <= hi[2]; j++) {
 			for (int k = lo[0]; k <= hi[0]; k++) {
-			//	if (std::isnan(pidin[k][i][j])) {
-			//		abort();
-			//	}
+				//	if (std::isnan(pidin[k][i][j])) {
+				//		abort();
+				//	}
 				fprintf(fp, "%20.10f\n", pidin[k][i][j] + p0);
 			}
 		}
@@ -825,11 +832,12 @@ void init() {
 	Mm[1] = 0.02805418; h0[1] = 5.24554e4 / Mm[1]; //ethylene
 
 	double r, p, u, v, e, gam, tmp, h_, w;
-
 	for (int i = lo[0] - 1; i <= hi[0] + 1; i++) {
 		for (int j = lo[1] - 1; j <= hi[1] + 1; j++) {
 			for (int fi = lo[2] - 1; fi <= hi[2] + 1; fi++) {
+
 				temp[i][j][fi] = temp_0;
+
 				p = p0;
 				u = 0.0;
 				v = 0.0;
@@ -859,13 +867,17 @@ void bnd_cond()
 	double r, p, h_, tmp, gamma;
 	double S_Vx = M_PI * (D_Vh / 2.0) * (D_Vh / 2.0);
 	int fi_oz;
-
+	double z_c, x_c, y_c;
+	double hugol = 2 * M_PI / (NZ);
+	double z_prev = z_center - radius, z_next = z_center + radius;
+	double eps = 0.0001;
+	double a = 0.2, b = 0.2;
 	for (int i = lo[0]; i <= hi[0]; i++) {
 		for (int fi = lo[2]; fi <= hi[2]; fi++) {
 			double x1 = D_MIN[0] + (i - K) * DX[0];
 			if (rnk_b == -1) {
-				if (fi <= NZ/2) fi_oz = fi + NZ/2;
-				else fi_oz = fi - NZ/2;
+				if (fi <= NZ / 2) fi_oz = fi + NZ / 2;
+				else fi_oz = fi - NZ / 2;
 				//нижняя стенка
 				for (int j = 0; j < K; j++) { //составляющую давления отражаю
 					pidin[i][lo[1] - j - 1][fi] = pidin[i][lo[1]][fi_oz];
@@ -886,24 +898,66 @@ void bnd_cond()
 				}
 			}
 			if (rnk_t == -1) {
-				//верхняя стенка
-				for (int j = 0; j < K; j++) { //составляющую давления везде отражаю
-					pidin[i][hi[1] + j + 1][fi] = pidin[i][hi[1] - j][fi];
-				}
-				//верхняя стенка - непротекание
+
+				double z_start = rnk * DX[0] * NX;
+				double z_end = (rnk + 1) * DX[0] * NX;
+				double z_c = i * DX[0] + rnk * DX[0] * NX;
+				x_c = G_D_MAX[1] * cos(fi * hugol);
+				y_c = G_D_MAX[1] * sin(fi * hugol);
 				for (int j = 0; j < K; j++) {
-					ro[i][hi[1] + j + 1][fi] = ro[i][hi[1] - j][fi];
-					ru[i][hi[1] + j + 1][fi] = -ru[i][hi[1] - j][fi];
-					rv[i][hi[1] + j + 1][fi] = -rv[i][hi[1] - j][fi];
-					rw[i][hi[1] + j + 1][fi] = -rw[i][hi[1] - j][fi];
-					rh[i][hi[1] + j + 1][fi] = rh[i][hi[1] - j][fi];
-					for (int iM = 0; iM < nMat; iM++)
-						ry[iM][i][hi[1] + j + 1][fi] = ry[iM][i][hi[1] - j][fi];
+					//задаем течение в дырочке
+					if ((z_prev <= z_c && z_c <= z_next) && (pow(x_c, 2) / pow(a, 2) + pow(z_c - z_center, 2) / pow(b, 2) - pow(y_c, 2) <= eps && y_c > 0)) {
+						//printf("popal!\n");
+						//температура
+						temp[i][hi[1] + j + 1][fi] = temp_bound_circle;
+
+						for (int iM = 0; iM < nMat; iM++) y[iM] = 0.;
+						y[0] = 0.6;
+						y[1] = 0.4;
+						double fU = vMixt / S_Vx;
+						double RR = D_Vh / 2.0;
+						//double p_g = p0 + pidin[lo[0] + i][j][fi];
+						double p_g = p0 + 0.01;
+						//double p_g = p0 + 8 * Calc_ML_Nv(y, temp_bound_circle) * G_D_MAX[0] * vMixt / (M_PI * RR * RR * RR * RR);
+						urs_mixt(y, 0.0, p_g, temp[i][hi[1] + j + 1][fi], 3,
+							tmp, gamma, r, h_);
+
+						ro[i][hi[1] + j + 1][fi] = r;
+
+						double ui = 0.0 * fU;
+						double vi = -1 * fU;
+						double wi = 0.0 * fU;
+
+						ru[i][hi[1] + j + 1][fi] = r * ui;
+						rv[i][hi[1] + j + 1][fi] = r * vi;
+						rw[i][hi[1] + j + 1][fi] = r * wi;
+						rh[i][hi[1] + j + 1][fi] = r * h_;
+						pidin[i][hi[1] + j + 1][fi] = p_g - p0;
+
+						for (int iM = 0; iM < nMat; iM++)
+							ry[iM][i][hi[1] + j + 1][fi] = r * y[iM];
+					}
+					else {
+						//Верхняя стенка, температура
+						temp[i][hi[1] + j + 1][fi] = temp_0;
+						//верхняя стенка
+						//составляющую давления везде отражаю
+						pidin[i][hi[1] + j + 1][fi] = pidin[i][hi[1] - j][fi];
+
+						//верхняя стенка - непротекание
+
+						ro[i][hi[1] + j + 1][fi] = ro[i][hi[1] - j][fi];
+						ru[i][hi[1] + j + 1][fi] = -ru[i][hi[1] - j][fi];
+						rv[i][hi[1] + j + 1][fi] = -rv[i][hi[1] - j][fi];
+						rw[i][hi[1] + j + 1][fi] = -rw[i][hi[1] - j][fi];
+						rh[i][hi[1] + j + 1][fi] = rh[i][hi[1] - j][fi];
+						for (int iM = 0; iM < nMat; iM++)
+							ry[iM][i][hi[1] + j + 1][fi] = ry[iM][i][hi[1] - j][fi];
+
+					}
+
 				}
-				//верхняя стенка температура
-				for (int j = 0; j < K; j++) {
-					temp[i][hi[1] + j + 1][fi] = temp_bound;
-				}
+
 			}
 		}
 	}
@@ -922,7 +976,7 @@ void bnd_cond()
 					double RR = D_Vh / 2.0;
 					//double p_g = p0 + pidin[lo[0] + i][j][fi];
 					//double p_g = p0 + 0.01;
-					double p_g = p0+8*Calc_ML_Nv(y,temp_in)*G_D_MAX[0]*vMixt/(M_PI*RR*RR*RR*RR);
+					double p_g = p0 + 8 * Calc_ML_Nv(y, temp_in) * G_D_MAX[0] * vMixt / (M_PI * RR * RR * RR * RR);
 					urs_mixt(y, 0.0, p_g, temp[lo[0] - i - 1][j][fi], 3,
 						tmp, gamma, r, h_);
 
@@ -1013,16 +1067,16 @@ void bnd_cond_p()
 {
 	double r, p, h_, tmp, gamma;
 	double S_Vx = M_PI * (D_Vh / 2.0) * (D_Vh / 2.0);
-    int fi_oz;
-	
+	int fi_oz;
+
 	for (int i = lo[0]; i <= hi[0]; i++) {
 		for (int fi = lo[2]; fi <= hi[2]; fi++) {
 			double x1 = D_MIN[0] + (i - K) * DX[0];
-			if (fi <= NZ/2) fi_oz = fi + NZ/2;
-			else fi_oz = fi - NZ/2;
+			if (fi <= NZ / 2) fi_oz = fi + NZ / 2;
+			else fi_oz = fi - NZ / 2;
 			//нижняя стенка
 			for (int j = 0; j < K; j++) { //составляющую давления отражаю
-					pidin[i][lo[1] - j - 1][fi] = pidin[i][lo[1]][fi_oz];
+				pidin[i][lo[1] - j - 1][fi] = pidin[i][lo[1]][fi_oz];
 			}
 			//верхняя стенка
 			if (rnk_t == -1) {
@@ -1048,7 +1102,7 @@ void bnd_cond_p()
 					double RR = D_Vh / 2.0;
 					//double p_g = p0 + pidin[lo[0] + i][j][fi];
 					//double p_g = p0 + 0.01;
-					double p_g = p0+8*Calc_ML_Nv(y,temp_in)*G_D_MAX[0]*vMixt/(M_PI*RR*RR*RR*RR);
+					double p_g = p0 + 8 * Calc_ML_Nv(y, temp_in) * G_D_MAX[0] * vMixt / (M_PI * RR * RR * RR * RR);
 					urs_mixt(y, 0.0, p_g, temp[lo[0] - i - 1][j][fi], 3,
 						tmp, gamma, r, h_);
 					pidin[lo[0] - i - 1][j][fi] = p_g - p0;
@@ -1198,56 +1252,56 @@ void exchange_fld(double*** fld)
 			}
 		}
 	}
-/*
-	// front2back (от меньшего угла к большему)
-	cnt = K * (hi[0] - lo[0] + 1) * K * (hi[1] - lo[1] + 1);
-	if (rnk_fi0 > -1) {
-		m = 0;
-		for (int i = lo[0]; i <= hi[0]; i++) {
-			for (int j = lo[1]; j <= hi[1]; j++) {
-				for (int k = hi[2] - K + 1; k <= hi[2]; k++) {
-					buf_d[m++] = fld[i][j][k];
+	/*
+		// front2back (от меньшего угла к большему)
+		cnt = K * (hi[0] - lo[0] + 1) * K * (hi[1] - lo[1] + 1);
+		if (rnk_fi0 > -1) {
+			m = 0;
+			for (int i = lo[0]; i <= hi[0]; i++) {
+				for (int j = lo[1]; j <= hi[1]; j++) {
+					for (int k = hi[2] - K + 1; k <= hi[2]; k++) {
+						buf_d[m++] = fld[i][j][k];
+					}
+				}
+			}
+			MPI_Send(buf_d, cnt, MPI_DOUBLE, rnk_t, 4, MPI_COMM_WORLD);
+		}
+		if (rnk_b > -1) {
+			MPI_Recv(buf_d, cnt, MPI_DOUBLE, rnk_b, 4, MPI_COMM_WORLD, &st);
+			m = 0;
+			for (int i = lo[0]; i <= hi[0]; i++) {
+				for (int j = lo[1]; j <= hi[1]; j++) {
+					for (int k = lo[2] - K; k <= lo[2] - 1; k++) {
+						fld[i][j][k] = buf_d[m++];
+					}
 				}
 			}
 		}
-		MPI_Send(buf_d, cnt, MPI_DOUBLE, rnk_t, 4, MPI_COMM_WORLD);
-	}
-	if (rnk_b > -1) {
-		MPI_Recv(buf_d, cnt, MPI_DOUBLE, rnk_b, 4, MPI_COMM_WORLD, &st);
-		m = 0;
-		for (int i = lo[0]; i <= hi[0]; i++) {
-			for (int j = lo[1]; j <= hi[1]; j++) {
-				for (int k = lo[2] - K; k <= lo[2] - 1; k++) {
-					fld[i][j][k] = buf_d[m++];
-				}
-			}
-		}
-	}
 
-	// back2front
-	cnt = K * (hi[0] - lo[0] + 1) * K * (hi[1] - lo[1] + 1);
-	if (rnk_b > -1) {
-		m = 0;
-		for (int i = lo[0]; i <= hi[0]; i++) {
-			for (int j = lo[1]; j <= hi[1]; j++) {
-				for (int k = lo[2]; k <= lo[2] + K - 1; k++) {
-					buf_d[m++] = fld[i][j][k];
+		// back2front
+		cnt = K * (hi[0] - lo[0] + 1) * K * (hi[1] - lo[1] + 1);
+		if (rnk_b > -1) {
+			m = 0;
+			for (int i = lo[0]; i <= hi[0]; i++) {
+				for (int j = lo[1]; j <= hi[1]; j++) {
+					for (int k = lo[2]; k <= lo[2] + K - 1; k++) {
+						buf_d[m++] = fld[i][j][k];
+					}
 				}
 			}
+			MPI_Send(buf_d, cnt, MPI_DOUBLE, rnk_b, 5, MPI_COMM_WORLD);
 		}
-		MPI_Send(buf_d, cnt, MPI_DOUBLE, rnk_b, 5, MPI_COMM_WORLD);
-	}
-	if (rnk_t > -1) {
-		MPI_Recv(buf_d, cnt, MPI_DOUBLE, rnk_t, 5, MPI_COMM_WORLD, &st);
-		m = 0;
-		for (int i = lo[0]; i <= hi[0]; i++) {
-			for (int j = lo[1]; j <= hi[1]; j++) {
-				for (int k = hi[2] + 1; k <= hi[2] + K; k++) {
-					fld[i][j][k] = buf_d[m++];
+		if (rnk_t > -1) {
+			MPI_Recv(buf_d, cnt, MPI_DOUBLE, rnk_t, 5, MPI_COMM_WORLD, &st);
+			m = 0;
+			for (int i = lo[0]; i <= hi[0]; i++) {
+				for (int j = lo[1]; j <= hi[1]; j++) {
+					for (int k = hi[2] + 1; k <= hi[2] + K; k++) {
+						fld[i][j][k] = buf_d[m++];
+					}
 				}
 			}
-		}
-	}*/
+		}*/
 
 }
 
@@ -1300,25 +1354,25 @@ void calc_fluxes()
 				t_ul = ru[i - 1][j][fi] / ro[i - 1][j][fi], t_ur = ru[i][j][fi] / ro[i][j][fi], t_vl = rv[i - 1][j][fi] / ro[i - 1][j][fi], t_vr = rv[i][j][fi] / ro[i][j][fi];
 				t_wl = rw[i - 1][j][fi] / ro[i - 1][j][fi];
 				t_wr = rw[i][j][fi] / ro[i][j][fi];
-				
+
 				double ul_r = 0.25*(ru[i-1][j][fi]/ro[i-1][j][fi]+ru[i][j][fi]/ro[i][j][fi]+ru[i-1][j-1][fi]/ro[i-1][j-1][fi]+ru[i][j-1][fi]/ro[i][j-1][fi]);
 				double ur_r = 0.25*(ru[i-1][j][fi]/ro[i-1][j][fi]+ru[i][j][fi]/ro[i][j][fi]+ru[i-1][j+1][fi]/ro[i-1][j+1][fi]+ru[i][j+1][fi]/ro[i][j+1][fi]);
 				double wl_fi = 0.25*(rw[i-1][j][fi]/ro[i-1][j][fi]+rw[i][j][fi]/ro[i][j][fi]+rw[i-1][j][fi-1]/ro[i-1][j][fi-1]+rw[i][j][fi-1]/ro[i][j][fi-1]);
 				double wr_fi = 0.25*(rw[i-1][j][fi]/ro[i-1][j][fi]+rw[i][j][fi]/ro[i][j][fi]+rw[i-1][j][fi+1]/ro[i-1][j][fi+1]+rw[i][j][fi+1]/ro[i][j][fi+1]);
-			    double vl_r = 0.25*(rv[i-1][j][fi]/ro[i-1][j][fi]+rv[i][j][fi]/ro[i][j][fi]+rv[i-1][j-1][fi]/ro[i-1][j-1][fi]+rv[i][j-1][fi]/ro[i][j-1][fi]);
+				double vl_r = 0.25*(rv[i-1][j][fi]/ro[i-1][j][fi]+rv[i][j][fi]/ro[i][j][fi]+rv[i-1][j-1][fi]/ro[i-1][j-1][fi]+rv[i][j-1][fi]/ro[i][j-1][fi]);
 				double vr_r = 0.25*(rv[i-1][j][fi]/ro[i-1][j][fi]+rv[i][j][fi]/ro[i][j][fi]+rv[i-1][j+1][fi]/ro[i-1][j+1][fi]+rv[i][j+1][fi]/ro[i][j+1][fi]);
 				double ul_fi = 0.25*(ru[i-1][j][fi]/ro[i-1][j][fi]+ru[i][j][fi]/ro[i][j][fi]+ru[i-1][j][fi-1]/ro[i-1][j][fi-1]+ru[i][j][fi-1]/ro[i][j][fi-1]);
 				double ur_fi = 0.25*(ru[i-1][j][fi]/ro[i-1][j][fi]+ru[i][j][fi]/ro[i][j][fi]+ru[i-1][j][fi+1]/ro[i-1][j][fi+1]+ru[i][j][fi+1]/ro[i][j][fi+1]);
-			   		
-				
+
+
 				tau_xx = 0.5 * (Calc_ML_Nv(yl, templ) + Calc_ML_Nv(yr, tempr)) * (2 * (t_ur - t_ul) / DX[0] - 2 * ((t_ur - t_ul) / DX[0] + (vr_r * r_yr  - vl_r * r_yl) / (DX[1] * r_y) + (wr_fi - wl_fi) / (DX[2] * r_y)) / 3);
 				tau_xy = 0.5 * (Calc_ML_Nv(yl, templ) + Calc_ML_Nv(yr, tempr)) * ((ur_r - ul_r) / DX[1] + (t_vr - t_vl) / DX[0]);
 				tau_xz = 0.5 * (Calc_ML_Nv(yl, templ) + Calc_ML_Nv(yr, tempr)) * ((t_wr - t_wl) / DX[0] + (ur_fi - ul_fi) / (DX[2] * r_y));
-					
+
 				fluxx_ru[i][j][fi] -= tau_xx;
 				fluxx_rv[i][j][fi] -= tau_xy;
 				fluxx_rw[i][j][fi] -= tau_xz;
-				
+
 				//Поток тепла
 				QF = 0.5 * (Calc_KP_Nv(yr, tempr) + Calc_KP_Nv(yl, templ)) * (tempr - templ) / DX[0];
 				fluxx_rh[i][j][fi] -= QF;*/
@@ -1368,26 +1422,26 @@ void calc_fluxes()
 			/*	t_ul = ru[i][j - 1][fi] / ro[i][j - 1][fi], t_ur = ru[i][j][fi] / ro[i][j][fi], t_vl = rv[i][j - 1][fi] / ro[i][j - 1][fi], t_vr = rv[i][j][fi] / ro[i][j][fi];
 				t_wl = rw[i][j - 1][fi] / ro[i][j - 1][fi];
 				t_wr = rw[i][j][fi] / ro[i][j][fi];
-				
+
 				double ul_z = 0.25*(ru[i][j-1][fi]/ro[i][j-1][fi]+ru[i][j][fi]/ro[i][j][fi]+ru[i-1][j-1][fi]/ro[i-1][j-1][fi]+ru[i-1][j][fi]/ro[i-1][j][fi]);
 				double ur_z = 0.25*(ru[i][j-1][fi]/ro[i][j-1][fi]+ru[i][j][fi]/ro[i][j][fi]+ru[i+1][j-1][fi]/ro[i+1][j-1][fi]+ru[i+1][j][fi]/ro[i+1][j][fi]);
-				
+
 				double vl_z = 0.25*(rv[i][j-1][fi]/ro[i][j-1][fi]+rv[i][j][fi]/ro[i][j][fi]+rv[i-1][j-1][fi]/ro[i-1][j-1][fi]+rv[i-1][j][fi]/ro[i-1][j][fi]);
 				double vr_z = 0.25*(rv[i][j-1][fi]/ro[i][j-1][fi]+rv[i][j][fi]/ro[i][j][fi]+rv[i+1][j-1][fi]/ro[i+1][j-1][fi]+rv[i+1][j][fi]/ro[i+1][j][fi]);
-								
+
 				double wl_fi = 0.25*(rw[i][j-1][fi]/ro[i][j-1][fi]+rw[i][j][fi]/ro[i][j][fi]+rw[i][j-1][fi-1]/ro[i][j-1][fi-1]+rw[i][j][fi-1]/ro[i][j][fi-1]);
 				double wr_fi = 0.25*(rw[i][j-1][fi]/ro[i][j-1][fi]+rw[i][j][fi]/ro[i][j][fi]+rw[i][j-1][fi+1]/ro[i][j-1][fi+1]+rw[i][j][fi+1]/ro[i][j][fi+1]);
-				
+
 				double vl_fi = 0.25*(rv[i][j-1][fi]/ro[i][j-1][fi]+rv[i][j][fi]/ro[i][j][fi]+rv[i][j-1][fi-1]/ro[i][j-1][fi-1]+rv[i][j][fi-1]/ro[i][j][fi-1]);
 				double vr_fi = 0.25*(rv[i][j-1][fi]/ro[i][j-1][fi]+rv[i][j][fi]/ro[i][j][fi]+rv[i][j-1][fi+1]/ro[i][j-1][fi+1]+rv[i][j][fi+1]/ro[i][j][fi+1]);
-				
-				
+
+
 				if (j != lo[1]) {
 
 					tau_xy = 0.5 * (Calc_ML_Nv(yl, templ) + Calc_ML_Nv(yr, tempr)) * ((t_ur - t_ul) / DX[1] + (vr_z - vl_z) / DX[0]);
 					tau_yy = 0.5 * (Calc_ML_Nv(yl, templ) + Calc_ML_Nv(yr, tempr)) * (2.0 * (t_vr - t_vl) / DX[1] - 2 * ((ur_z - ul_z) / DX[0] + (r_yr * t_vr - r_yl * t_vl) / (r_y * DX[1]) + (wr_fi - wl_fi) / (DX[2] * r_y)) / 3);
 					tau_yz = 0.5 * (Calc_ML_Nv(yl, templ) + Calc_ML_Nv(yr, tempr)) * ((t_wr - t_wl) / DX[1] + (vr_fi - vl_fi) / (r_y * DX[2]) - 0.5 * (t_wr + t_wl) / r_y);
-					
+
 					fluxy_ru[i][j][fi] -= r_y * tau_xy;
 					fluxy_rv[i][j][fi] -= r_y * tau_yy;
 					fluxy_rw[i][j][fi] -= r_y * tau_yz;
@@ -1444,16 +1498,16 @@ void calc_fluxes()
 
 				double wl_z = 0.;//0.25*(rw[i][j][fi-1]/ro[i][j][fi-1]+rw[i][j][fi]/ro[i][j][fi]+rw[i-1][j][fi-1]/ro[i-1][j][fi-1]+rw[i-1][j][fi]/ro[i-1][j][fi]);
 				double wr_z = 0.;//0.25*(rw[i][j][fi-1]/ro[i][j][fi-1]+rw[i][j][fi]/ro[i][j][fi]+rw[i+1][j][fi-1]/ro[i+1][j][fi-1]+rw[i+1][j][fi]/ro[i+1][j][fi]);
-				
+
 				double wl_r = 0.;//0.25*(rw[i][j][fi-1]/ro[i][j][fi-1]+rw[i][j][fi]/ro[i][j][fi]+rw[i][j-1][fi-1]/ro[i][j-1][fi-1]+rw[i][j-1][fi]/ro[i][j-1][fi]);
 				double wr_r = 0.25*(rw[i][j][fi-1]/ro[i][j][fi-1]+rw[i][j][fi]/ro[i][j][fi]+rw[i][j+1][fi-1]/ro[i][j+1][fi-1]+rw[i][j+1][fi]/ro[i][j+1][fi]);
-				
+
 				double ul_z = 0.;//0.25*(ru[i][j][fi-1]/ro[i][j][fi-1]+ru[i][j][fi]/ro[i][j][fi]+ru[i-1][j][fi-1]/ro[i-1][j][fi-1]+ru[i-1][j][fi]/ro[i-1][j][fi]);
 				double ur_z = 0.;//0.25*(ru[i][j][fi-1]/ro[i][j][fi-1]+ru[i][j][fi]/ro[i][j][fi]+ru[i+1][j][fi-1]/ro[i+1][j][fi-1]+ru[i+1][j][fi]/ro[i+1][j][fi]);
-				
+
 				double vl_r = 0.;//0.25*(rv[i][j][fi-1]/ro[i][j][fi-1]+rv[i][j][fi]/ro[i][j][fi]+rv[i][j-1][fi-1]/ro[i][j-1][fi-1]+rv[i][j-1][fi]/ro[i][j-1][fi]);
 				double vr_r = 0.;//0.25*(rv[i][j][fi-1]/ro[i][j][fi-1]+rv[i][j][fi]/ro[i][j][fi]+rv[i][j+1][fi-1]/ro[i][j+1][fi-1]+rv[i][j+1][fi]/ro[i][j+1][fi]);
-				
+
 
 				if (j != lo[1]) {
 					tau_xz = 0.5 * (Calc_ML_Nv(yl, templ) + Calc_ML_Nv(yr, tempr)) * ((wr_z - wl_z) / DX[0] + (t_ur - t_ul) / (r_y * DX[2]));
@@ -1487,7 +1541,7 @@ double Calc_KP_Nv(double* y, double tmp)
 	for (int iM = 0; iM < nMat; iM++)
 	{
 		double fCK_M = y[iM] / Mm[iM];
-		
+
 		fM_ += fCK_M;
 		//if (iM < OsnV) {
 		fKP += fCK_M * KPm[iM];
@@ -1497,7 +1551,7 @@ double Calc_KP_Nv(double* y, double tmp)
 		//}
 	}
 
-	KP = fKP / fM_; 
+	KP = fKP / fM_;
 
 	//KP=KPm[0];
 	delete[] KPm;
@@ -1528,27 +1582,27 @@ void calc_new_fields()
 				double rr = ro[i][j][fi];
 				double ur = rv[i][j][fi] / rr;
 				double ufi = rw[i][j][fi] / rr;
-				double wr_fi = rw[i][j][fi+1] / ro[i][j][fi+1];
-				double wl_fi = rw[i][j][fi-1] / ro[i][j][fi-1];
+				double wr_fi = rw[i][j][fi + 1] / ro[i][j][fi + 1];
+				double wl_fi = rw[i][j][fi - 1] / ro[i][j][fi - 1];
 				double vv = rv[i][j][fi] / ro[i][j][fi];
-				double ur_z = ru[i+1][j][fi] / ro[i+1][j][fi];
-				double ul_z = ru[i-1][j][fi] / ro[i-1][j][fi];
-				double vr_r = rv[i][j+1][fi] / ro[i][j+1][fi];
-				double vl_r = rv[i][j-1][fi] / ro[i][j-1][fi];
-				double wr_r = rw[i][j+1][fi] / ro[i][j+1][fi];
-				double wl_r = rw[i][j-1][fi] / ro[i][j-1][fi];
-				double vr_fi = rv[i][j][fi+1] / ro[i][j][fi+1];
-				double vl_fi = rv[i][j][fi-1] / ro[i][j][fi-1];
+				double ur_z = ru[i + 1][j][fi] / ro[i + 1][j][fi];
+				double ul_z = ru[i - 1][j][fi] / ro[i - 1][j][fi];
+				double vr_r = rv[i][j + 1][fi] / ro[i][j + 1][fi];
+				double vl_r = rv[i][j - 1][fi] / ro[i][j - 1][fi];
+				double wr_r = rw[i][j + 1][fi] / ro[i][j + 1][fi];
+				double wl_r = rw[i][j - 1][fi] / ro[i][j - 1][fi];
+				double vr_fi = rv[i][j][fi + 1] / ro[i][j][fi + 1];
+				double vl_fi = rv[i][j][fi - 1] / ro[i][j][fi - 1];
 				for (int iM = 0; iM < nMat; iM++) y[iM] = ry[iM][i][j][fi] / ro[i][j][fi];
-				
+
 				double tau_fifi = 0.;//Calc_ML_Nv(y, temp[i][j][fi]) * 2.0 * ((wr_fi - wl_fi) / (2*r_y * DX[2]) + vv/ r_y - ((ur_z - ul_z) / (2*DX[0]) + (r_yr * vr_r - r_yl * vl_r) / (2*DX[1] * r_y) + (wr_fi - wl_fi) / (2*DX[2] * r_y)) / 3.0);
 				double tau_rfi = 0.;//Calc_ML_Nv(y, temp[i][j][fi])*((wr_r - wl_r) / (2*DX[1])+(vr_fi - vl_fi) / (2*r_y * DX[2])-ufi/r_y);
 
 				ru[i][j][fi] -= ((fluxx_ru[i + 1][j][fi] - fluxx_ru[i][j][fi]) / DX[0] + (fluxy_ru[i][j + 1][fi] - fluxy_ru[i][j][fi]) / (DX[1] * r_y) + (fluxz_ru[i][j][fi + 1] - fluxz_ru[i][j][fi]) / (DX[2] * r_y)) * TAU;
 				rv[i][j][fi] -= ((fluxx_rv[i + 1][j][fi] - fluxx_rv[i][j][fi]) / DX[0] + (fluxy_rv[i][j + 1][fi] - fluxy_rv[i][j][fi]) / (DX[1] * r_y) + (fluxz_rv[i][j][fi + 1] - fluxz_rv[i][j][fi]) / (DX[2] * r_y)) * TAU;
-				rv[i][j][fi] += TAU * (rr * ufi * ufi-tau_fifi) / r_y;
+				rv[i][j][fi] += TAU * (rr * ufi * ufi - tau_fifi) / r_y;
 				rw[i][j][fi] -= ((fluxx_rw[i + 1][j][fi] - fluxx_rw[i][j][fi]) / DX[0] + (fluxy_rw[i][j + 1][fi] - fluxy_rw[i][j][fi]) / (DX[1] * r_y) + (fluxz_rw[i][j][fi + 1] - fluxz_rw[i][j][fi]) / (DX[2] * r_y)) * TAU;
-				rw[i][j][fi] -= TAU * (rr * ur * ufi-tau_rfi) / r_y;
+				rw[i][j][fi] -= TAU * (rr * ur * ufi - tau_rfi) / r_y;
 			}
 		}
 	}
@@ -1807,7 +1861,7 @@ void calc_s()
 				double r_yr = D_MIN[1] + (j - lo[1] + 0.5) * DX[1];
 
 				QFy[i][j][k] = 0.5 * r_y * (Calc_KP_Nv(yr, tempr) + Calc_KP_Nv(yl, templ)) * (tempr - templ) / DX[1];
-				
+
 
 			}
 		}
