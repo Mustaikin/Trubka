@@ -137,9 +137,9 @@ void blockSOR(double lambda, int m, double** uRe, double** uIm, double** fRe, do
 			dRe[nz - 3] -= a * uSorRe[i][nz - 1];
 			dIm[0] -= a * uSorIm[i][0];
 			dIm[nz - 3] -= a * uSorIm[i][nz - 1];
-			for (int i = 0; i < nz; i++) {
+		/*	for (int i = 0; i < nz; i++) {
 				printf("%lf\n", dRe[i]);
-			}
+			}*/
 			//Прогонка
 			tridiagonalMatrixSolve(a, b, c, dRe, resRe, nz - 2);
 			tridiagonalMatrixSolve(a, b, c, dIm, resIm, nz - 2);
@@ -150,7 +150,6 @@ void blockSOR(double lambda, int m, double** uRe, double** uIm, double** fRe, do
 				double uOldSorIm = uSorIm[i][k];
 				double uNewSorRe = omega * resRe[k - 1] + (1 - omega) * uOldSorRe;
 				double uNewSorIm = omega * resIm[k - 1] + (1 - omega) * uOldSorIm;
-				std::cout << uOldSorRe << "\n" << uNewSorRe << "\n";
 				if (stop && (fabs(uNewSorRe - uOldSorRe) > eps || fabs(uNewSorIm - uOldSorIm) > eps)) {
 					stop = false;
 				}

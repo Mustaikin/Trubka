@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <VTKFile type="PStructuredGrid" version="0.1" byte_order="LittleEndian">
-  <PStructuredGrid WholeExtent="0 128 0 12 0 10" GhostLevel="0">
+  <PStructuredGrid WholeExtent="0 256 0 10 0 10" GhostLevel="0">
     <PPoints>
 <PDataArray type="Float32" NumberOfComponents = "3" />
 </PPoints>
@@ -9,10 +9,9 @@
 			<PDataArray type="Float32" Name="Density" format="ascii" />
 			<PDataArray type="Float32" Name="MassFraction_CH4" format="ascii" />
 			<PDataArray type="Float32" Name="MassFraction_C2_H4" format="ascii" />
-			<PDataArray type="Float32" Name="MassFraction_H2" format="ascii" />
 			<PDataArray type="Float32" Name="Velocity" NumberOfComponents="3" format="ascii" />
 			<PDataArray type="Float32" Name="Pressure" format="ascii" />
 		</PCellData>
-    <Piece Extent="0 128 0 12 0 10" Source="res_00000000000000_0000.vts"/>
+    <Piece Extent="0 256 0 10 0 10" Source="res_00000000000000_0000.vts"/>
   </PStructuredGrid>
 </VTKFile>

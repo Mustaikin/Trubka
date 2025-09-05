@@ -13,7 +13,6 @@ const double PI = 3.14159265;
 
 void solveByFftBsor(
     double*** uin, double*** f,
-    double R, double z0, double z1,
     int nz, int nr, int nfi,
     double hz, double hr, double hfi, double eps)
 {
@@ -91,6 +90,7 @@ void solveByFftBsor(
     double* omegas = new double[nfi];
     getLambdas(lambdas, nfi, hfi);
     getOmegas(omegas, lambdas, nfi, nr, nz, hr, hz);
+
 
     // решаем по блокам
     for (int m = 0; m < nfi; m++) {
