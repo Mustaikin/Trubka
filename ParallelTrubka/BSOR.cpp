@@ -1,6 +1,6 @@
 #define _USE_MATH_DEFINES 
 #include "BSOR.h"
-#include "FFT.h"
+#include "fftw3.h"
 #include "iostream"
 #include <cmath>
 void getLambdas(double* lambdas, int nfi, double hfi) {
@@ -22,36 +22,56 @@ void getOmegas(double* omegas, double* lambdas, int nfi, int nr, int nz, double 
 
 
 double** fft_handler(double* vec, int n) {
-	double* vecRI1D = new double[2 * n];
+	fftw_complex* in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * n);
+	fftw_complex* out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * n);
+
 	for (int i = 0; i < n; i++) {
-		vecRI1D[2 * i] = vec[i];
-		vecRI1D[2 * i + 1] = 0.;
+		in[i][0] = vec[i];
+		in[i][1] = 0.0;
 	}
-	fft(vecRI1D, n, 0);
+
+	fftw_plan plan = fftw_plan_dft_1d(n, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
+
+	fftw_execute(plan);
+
 	double** dataRI = new double* [2];
 	dataRI[0] = new double[n];
 	dataRI[1] = new double[n];
 
 	for (int i = 0; i < n; i++) {
-		dataRI[0][i] = vecRI1D[2 * i];
-		dataRI[1][i] = vecRI1D[2 * i + 1];
+		dataRI[0][i] = out[i][0];
+		dataRI[1][i] = out[i][1];
 	}
-	delete[] vecRI1D;
+
+	fftw_destroy_plan(plan);
+	fftw_free(in);
+	fftw_free(out);
+
 	return dataRI;
 }
 
 double* ifft_handler(double* data_RE, double* data_IM, int n) {
-	double* vecRI1D = new double[2 * n];
+	fftw_complex* in = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * n);
+	fftw_complex* out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * n);
+
 	for (int i = 0; i < n; i++) {
-		vecRI1D[2 * i] = data_RE[i];
-		vecRI1D[2 * i + 1] = data_IM[i];
+		in[i][0] = data_RE[i];
+		in[i][1] = data_IM[i];
 	}
-	fft(vecRI1D, n, 1);
+
+	fftw_plan plan = fftw_plan_dft_1d(n, in, out, FFTW_BACKWARD, FFTW_ESTIMATE);
+
+	fftw_execute(plan);
+
 	double* vecR = new double[n];
 	for (int i = 0; i < n; i++) {
-		vecR[i] = vecRI1D[2 * i];
+		vecR[i] = out[i][0] / n;
 	}
-	delete[] vecRI1D;
+
+	fftw_destroy_plan(plan);
+	fftw_free(in);
+	fftw_free(out);
+
 	return vecR;
 }
 
@@ -64,14 +84,10 @@ void tridiagonalMatrixSolve(double a, double b, double c, double* d, double* sol
 
 	for (int i = 1; i < n - 1; i++) {
 		double denom = b + a * alpha[i - 1];
-		/*std::cerr << "Bad denom at i=" << i
-			<< " b=" << b
-			<< " a=" << a
-			<< " alpha[i-1]=" << alpha[i - 1]
-			<< " denom=" << denom << std::endl;*/
 		alpha[i] = -c / denom;
 		betta[i] = (d[i] - a * betta[i - 1]) / denom;
 	}
+
 	betta[n - 1] = (d[n - 1] - a * betta[n - 2]) / (b + a * alpha[n - 2]);
 
 	solve[n - 1] = betta[n - 1];
@@ -101,18 +117,16 @@ void blockSOR(double lambda, int m, double** uRe, double** uIm, double** fRe, do
 		}
 	}
 
-	double invHr2 = 1 / (hr*hr);
-	double invHz2 = 1 / (hz*hz);
+	double invHr2 = 1 / pow(hr, 2);
+	double invHz2 = 1 / pow(hz, 2);
 	double a = invHz2;
 	double c = a;
 	double twoInvHr2 = 2 * invHr2;
 	double twoInvHz2 = 2 * invHz2;
 	bool stop = 0;
-	int q = 0;
+
 	double* dRe = new double[nz - 2];
 	double* dIm = new double[nz - 2];
-	double* resRe = new double[nz - 2];
-	double* resIm = new double[nz - 2];
 	while (!stop) {
 		stop = 1;
 
@@ -120,8 +134,8 @@ void blockSOR(double lambda, int m, double** uRe, double** uIm, double** fRe, do
 			double ri = i * hr;
 			double inv2RiHr = 1.0 / (2.0 * ri * hr);
 
-			double b = -1 * (twoInvHr2 + (lambda / (ri * ri)) + twoInvHz2);
-			//std::cout << b << "\n";
+			double b = -1 * (twoInvHr2 + (lambda / pow(ri, 2) + twoInvHz2));
+
 			//Заполняем вектора для правой части СЛАУ
 			for (int k = 1; k < nz - 1; k++) {
 				double diffURe = uSorRe[i + 1][k] - uSorRe[i - 1][k];
@@ -137,10 +151,11 @@ void blockSOR(double lambda, int m, double** uRe, double** uIm, double** fRe, do
 			dRe[nz - 3] -= a * uSorRe[i][nz - 1];
 			dIm[0] -= a * uSorIm[i][0];
 			dIm[nz - 3] -= a * uSorIm[i][nz - 1];
-			for (int i = 0; i < nz; i++) {
-				printf("%lf\n", dRe[i]);
-			}
+
 			//Прогонка
+			double* resRe = new double[nz - 2];
+			double* resIm = new double[nz - 2];
+
 			tridiagonalMatrixSolve(a, b, c, dRe, resRe, nz - 2);
 			tridiagonalMatrixSolve(a, b, c, dIm, resIm, nz - 2);
 
@@ -150,12 +165,11 @@ void blockSOR(double lambda, int m, double** uRe, double** uIm, double** fRe, do
 				double uOldSorIm = uSorIm[i][k];
 				double uNewSorRe = omega * resRe[k - 1] + (1 - omega) * uOldSorRe;
 				double uNewSorIm = omega * resIm[k - 1] + (1 - omega) * uOldSorIm;
-				std::cout << uOldSorRe << "\n" << uNewSorRe << "\n";
+
 				if (stop && (fabs(uNewSorRe - uOldSorRe) > eps || fabs(uNewSorIm - uOldSorIm) > eps)) {
 					stop = false;
 				}
-				/*printf("Re: %lf\n", fabs(uNewSorRe - uOldSorRe));
-				printf("Im: %lf\n", fabs(uNewSorIm - uOldSorIm));*/
+
 				uSorRe[i][k] = uNewSorRe;
 				uSorIm[i][k] = uNewSorIm;
 			}
@@ -166,26 +180,24 @@ void blockSOR(double lambda, int m, double** uRe, double** uIm, double** fRe, do
 					uSorIm[0][k] = uSorIm[1][k];
 				}
 			}
-			q++;
-			//printf("%d\n", q);
+			delete[] resRe;
+			delete[] resIm;
+		}
+	}
+	delete[] dRe;
+	delete[] dIm;
+
+	for (int i = 0; i < nr; i++) {
+		for (int k = 0; k < nz; k++) {
+			resReIm[0][i][k] = uSorRe[i][k];
+			resReIm[1][i][k] = uSorIm[i][k];
 		}
 	}
 
-
-	for (int i = 0; i < nr; i++) {
-		for (int j = 0; j < nz; j++) {
-			resReIm[0][i][j] = uSorRe[i][j];
-			resReIm[1][i][j] = uSorIm[i][j];
-		}
-	}
-	for (int i = 0; i < nr; i++) {
+	for (int i = 0; i < nr; ++i) {
 		delete[] uSorRe[i];
 		delete[] uSorIm[i];
 	}
 	delete[] uSorRe;
 	delete[] uSorIm;
-	delete[] dRe;
-	delete[] dIm;
-	delete[] resRe;
-	delete[] resIm;
 }
